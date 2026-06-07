@@ -226,7 +226,7 @@ document.getElementById("inputFile").addEventListener("change", e => {
   const reader = new FileReader();
   reader.onload = ev => {
     let wb;
-    try { wb = XLSX.read(new Uint8Array(ev.target.result), { type:"array" }); }
+    try { wb = XLSX.read(new Uint8Array(ev.target.result), { type:"array", cellDates:true }); }
     catch(err){ alert("엑셀을 읽을 수 없습니다: "+err); return; }
 
     // 내역입력
@@ -242,8 +242,16 @@ document.getElementById("inputFile").addEventListener("change", e => {
       if (!byName[name]) { byName[name] = []; order.push(name); }
       const cell = v => (v!=null ? String(v).trim() : "");
       const numc = v => (v!=null && v!=="" ? v : "");
+      const dcell = v => {
+        if (v instanceof Date) {
+          const y=v.getFullYear(), mo=String(v.getMonth()+1).padStart(2,"0"),
+                d=String(v.getDate()).padStart(2,"0");
+          return `${y}-${mo}-${d}`;
+        }
+        return cell(v);
+      };
       byName[name].push({
-        date:      cell(r[1]),
+        date:      dcell(r[1]),
         gubun:     cell(r[2]),
         paid:      cell(r[3]),
         dest:      cell(r[4]),
