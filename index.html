@@ -173,11 +173,12 @@ function load() {
   document.getElementById("setDate").value  = state.date  || "";
 }
 function blankMember(name) {
-  return { name: name||"", car:"", account:"", note:"",
+  return { name: name||"", car:"", account:"", note:"", tax:"",
            items: [ blankItem() ] };
 }
 function blankItem() {
-  return { gubun:"", dest:"", month:"", income:"", expense:"", bigo:"" };
+  return { date:"", gubun:"", paid:"", dest:"", contractor:"",
+           income:"", expense:"", cashTax:"", reserve:"", normalRun:"", bigo:"" };
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -333,11 +334,16 @@ function renderEditor() {
   let itemRows = m.items.map((it,idx)=>`
     <tr>
       <td class="c">${idx+1}</td>
+      <td><input value="${esc(it.date)}" onchange="upd(${idx},'date',this.value)" placeholder="2026-02-01"></td>
       <td><input value="${esc(it.gubun)}" onchange="upd(${idx},'gubun',this.value)"></td>
+      <td><input value="${esc(it.paid)}" onchange="upd(${idx},'paid',this.value)"></td>
       <td><input value="${esc(it.dest)}" onchange="upd(${idx},'dest',this.value)"></td>
-      <td><input value="${esc(it.month)}" onchange="upd(${idx},'month',this.value)"></td>
+      <td><input value="${esc(it.contractor)}" onchange="upd(${idx},'contractor',this.value)"></td>
       <td><input type="number" value="${it.income}" onchange="upd(${idx},'income',this.value)"></td>
       <td><input type="number" value="${it.expense}" onchange="upd(${idx},'expense',this.value)"></td>
+      <td><input type="number" value="${it.cashTax}" onchange="upd(${idx},'cashTax',this.value)"></td>
+      <td><input type="number" value="${it.reserve}" onchange="upd(${idx},'reserve',this.value)"></td>
+      <td><input type="number" value="${it.normalRun}" onchange="upd(${idx},'normalRun',this.value)"></td>
       <td><input value="${esc(it.bigo)}" onchange="upd(${idx},'bigo',this.value)"></td>
       <td class="c"><button class="danger" onclick="delItem(${idx})">×</button></td>
     </tr>`).join("");
@@ -350,6 +356,9 @@ function renderEditor() {
       <label class="fld">차량번호
         <input value="${esc(m.car)}" onchange="updM('car',this.value)">
       </label>
+      <label class="fld">잔여금 소득세(수동)
+        <input type="number" value="${m.tax||''}" onchange="updM('tax',this.value)" placeholder="0">
+      </label>
       <label class="fld" style="flex:1">입금계좌
         <input style="width:100%" value="${esc(m.account)}" onchange="updM('account',this.value)">
       </label>
@@ -357,15 +366,19 @@ function renderEditor() {
     <label class="fld" style="margin-bottom:10px">분할분담금 안내(비고)
       <textarea rows="3" style="width:100%" onchange="updM('note',this.value)">${esc(m.note)}</textarea>
     </label>
-    <table>
+    <div style="overflow-x:auto">
+    <table style="min-width:1050px">
       <thead><tr>
-        <th style="width:34px">No</th><th style="width:70px">구분</th>
-        <th>행선지/계약자</th><th style="width:90px">계약월</th>
-        <th style="width:120px">수입(입금)</th><th style="width:120px">지출(출금)</th>
-        <th>비고</th><th style="width:36px"></th>
+        <th style="width:30px">No</th><th style="width:92px">일자</th>
+        <th style="width:60px">구분</th><th style="width:60px">입금일</th>
+        <th style="width:130px">행선지</th><th style="width:100px">계약자</th>
+        <th style="width:100px">수입(입금)</th><th style="width:100px">지출(출금)</th>
+        <th style="width:90px">현금매출세액</th><th style="width:90px">보류</th>
+        <th style="width:90px">일반운행</th><th>비고</th><th style="width:30px"></th>
       </tr></thead>
       <tbody>${itemRows}</tbody>
     </table>
+    </div>
     <div style="margin-top:8px"><button class="mini" onclick="addItem()">+ 내역 줄 추가</button></div>
   `;
 }
@@ -387,30 +400,40 @@ function generate() {
 }
 
 function renderStatement(m) {
-  const items = m.items.filter(it => it.gubun||it.dest||it.income||it.expense||it.bigo);
-  const incomeSum = items.reduce((s,it)=>s+num(it.income),0);
-  const expenseSum = items.reduce((s,it)=>s+num(it.expense),0);
-  const total = incomeSum - expenseSum;          // 총계
-  const salary = payrollMap[m.name] || 0;        // 급여
-  const remain = total - salary;                 // 잔여
-  const taxExact = remain * 0.033;
-  const tax = Math.round(taxExact);              // 소득세 표시
-  const remainSum = Math.round((remain - taxExact)/10)*10;  // ROUND(,-1)
+  const items = m.items.filter(it =>
+    it.date||it.gubun||it.dest||it.contractor||it.income||it.expense||
+    it.cashTax||it.reserve||it.normalRun||it.bigo);
 
-  const minRows = Math.max(items.length, 5);
+  const incomeSum    = items.reduce((s,it)=>s+num(it.income),0);
+  const expenseSum   = items.reduce((s,it)=>s+num(it.expense),0);
+  const cashTaxSum   = items.reduce((s,it)=>s+num(it.cashTax),0);
+  const reserveSum   = items.reduce((s,it)=>s+num(it.reserve),0);
+  const normalRunSum = items.reduce((s,it)=>s+num(it.normalRun),0);
+
+  const total       = incomeSum - (expenseSum + cashTaxSum); // 전체(급여)
+  const reserveAmt  = reserveSum / 1.1;                       // 보류금액
+  const normalVat   = normalRunSum / 11;                      // 일반운행 부가세
+  const salary      = payrollMap[m.name] || 0;               // 급여
+  const remain      = total - salary;                        // 잔여금
+  const taxManual   = num(m.tax);                            // 잔여금 소득세(수동)
+  const remainSum   = Math.round((remain - taxManual - normalVat)/10)*10; // ROUND(,-1)
+
+  const minRows = Math.max(items.length, 8);
   let rows = "";
   for (let i=0;i<minRows;i++){
-    const it = items[i];
+    const it = items[i] || {};
+    const g = v => (num(v) ? won(num(v)) : "");
     rows += `<tr>
-      <td class="c">${i+1}</td>
-      <td class="c">${it?esc(it.gubun):""}</td>
-      <td class="c"></td>
-      <td class="l">${it?esc(it.dest):""}</td>
-      <td class="c">${it?esc(it.month):""}</td>
-      <td class="r">${it&&num(it.income)?won(num(it.income)):""}</td>
-      <td class="r">${it&&num(it.expense)?won(num(it.expense)):""}</td>
-      <td class="c"></td>
-      <td class="l small">${it?esc(it.bigo):""}</td>
+      <td class="c small">${esc(it.date)}</td>
+      <td class="c">${esc(it.gubun)}</td>
+      <td class="c">${esc(it.paid)}</td>
+      <td class="l">${esc(it.dest)}</td>
+      <td class="l">${esc(it.contractor)}</td>
+      <td class="r">${g(it.income)}</td>
+      <td class="r">${g(it.expense)}</td>
+      <td class="r">${g(it.cashTax)}</td>
+      <td class="r">${g(it.reserve)}</td>
+      <td class="r">${g(it.normalRun)}</td>
     </tr>`;
   }
 
@@ -419,55 +442,66 @@ function renderStatement(m) {
   div.innerHTML = `
   <table>
     <colgroup>
-      <col style="width:5%"><col style="width:7%"><col style="width:8%">
-      <col style="width:18%"><col style="width:11%"><col style="width:13%">
-      <col style="width:13%"><col style="width:9%"><col style="width:16%">
+      <col style="width:9%"><col style="width:6%"><col style="width:6%">
+      <col style="width:14%"><col style="width:10%"><col style="width:11%">
+      <col style="width:11%"><col style="width:9%"><col style="width:12%">
+      <col style="width:12%">
     </colgroup>
     <tr>
       <td class="st-title" colspan="4" rowspan="2">정산내역서</td>
       <td class="gray">차량번호</td><td class="c blue" colspan="2">${esc(m.car)}</td>
-      <td class="gray">해당월</td><td class="c blue">${esc(state.month)}</td>
+      <td class="gray">해당월</td><td class="c blue" colspan="2">${esc(state.month)}</td>
     </tr>
     <tr>
       <td class="gray">조합원명</td><td class="c blue" colspan="2">${esc(m.name)}</td>
-      <td class="gray">정산일</td><td class="c blue">${esc(state.date)}</td>
+      <td class="gray">정산일</td><td class="c blue" colspan="2">${esc(state.date)}</td>
     </tr>
     <tr class="st-head">
-      <th></th><th>구분</th><th>입금일</th><th>행선지 / 계약자</th><th></th>
-      <th>수입(입금)</th><th>지출(출금)</th><th>보류</th><th>비고</th>
+      <th>일자</th><th>구분</th><th>입금일</th><th colspan="2">행선지 / 계약자</th>
+      <th>수입(입금)</th><th>지출(출금)</th><th>현금매출<br>세액</th>
+      <th>보류</th><th>일반운행</th>
     </tr>
     ${rows}
     <tr>
       <td class="gray" colspan="5">계</td>
       <td class="r blue">${won(incomeSum)}</td>
       <td class="r" style="font-weight:bold">${won(expenseSum)}</td>
-      <td></td><td></td>
+      <td class="r">${cashTaxSum?won(cashTaxSum):"–"}</td>
+      <td class="r" style="color:#1e8449">${won(reserveSum)}</td>
+      <td></td>
+    </tr>
+    <!-- 총계 영역 -->
+    <tr>
+      <td class="gray" colspan="4" rowspan="4">총   계</td>
+      <td class="gray">전체(급여)</td>
+      <td class="r" colspan="3" style="font-weight:bold">${won(total)}</td>
+      <td class="gray" style="background:#fff2cc">보류금액</td>
+      <td class="gray">일반운행</td>
     </tr>
     <tr>
-      <td class="gray" colspan="4">총   계</td>
-      <td class="c blue" colspan="2">${won(total)}</td>
-      <td></td><td></td><td></td>
+      <td class="gray" colspan="4"></td>
+      <td class="r" style="color:#1e8449">${won(reserveAmt)}</td>
+      <td class="r">${won(normalRunSum)}</td>
     </tr>
     <tr>
-      <td class="gray" rowspan="4">비 고</td>
-      <td class="bigo-box" colspan="3" rowspan="4">${esc(m.note)}</td>
-      <td class="gray" colspan="3">급   여</td>
-      <td class="r" colspan="2" style="font-weight:bold">${won(salary)}</td>
+      <td class="gray">잔여금</td>
+      <td class="r" style="font-weight:bold">${won(remain)}</td>
+      <td class="gray">잔여금 소득세</td>
+      <td class="r" style="background:#e2efda">${taxManual?won(taxManual):""}</td>
+      <td class="gray">일반운행<br>부가세</td>
+      <td class="r">${won(normalVat)}</td>
     </tr>
     <tr>
-      <td class="gray" colspan="3">잔   여</td>
-      <td class="r" colspan="2" style="font-weight:bold">${won(remain)}</td>
+      <td class="gray orange">급   여</td>
+      <td class="r orange" colspan="2" style="font-weight:bold">${salary?won(salary):"–"}</td>
+      <td class="gray">잔여합계</td>
+      <td class="r orange" colspan="2" style="font-weight:bold;font-size:14px">${won(remainSum)}</td>
     </tr>
+    <!-- 비고 / 추가내용 -->
     <tr>
-      <td class="gray" colspan="3">잔여금 소득세공제(3.3%)</td>
-      <td class="r" colspan="2" style="font-weight:bold">${won(tax)}</td>
-    </tr>
-    <tr>
-      <td class="gray" colspan="3">잔 여 합 계</td>
-      <td class="r blue orange" colspan="2">${won(remainSum)}</td>
-    </tr>
-    <tr>
-      <td class="gray" colspan="4">기 타</td>
+      <td class="gray">비 고</td>
+      <td class="bigo-box" colspan="3">${esc(m.note)}</td>
+      <td class="gray">추가내용</td>
       <td class="c" colspan="5" style="font-weight:bold">${esc(m.account)}</td>
     </tr>
   </table>`;
