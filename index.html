@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>하랑관광 정산내역서 자동 생성</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "맑은 고딕", "Malgun Gothic", sans-serif; margin: 0;
+         background: #f4f5f7; color: #222; }
+  header { background: #2c3e50; color: #fff; padding: 14px 20px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .sub { font-size: 12px; opacity: .8; margin-top: 2px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #dde1e6; border-radius: 8px;
+          margin-bottom: 16px; overflow: hidden; }
+  .card > h2 { margin: 0; padding: 10px 14px; background: #eef1f5; font-size: 14px;
+               border-bottom: 1px solid #dde1e6; }
+  .card .body { padding: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  label.fld { font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+  input, select, textarea { font-family: inherit; font-size: 13px; padding: 5px 7px;
+          border: 1px solid #c4c9d0; border-radius: 5px; }
+  input[type=number] { text-align: right; }
+  button { font-family: inherit; font-size: 13px; padding: 7px 14px; border: 0;
+           border-radius: 6px; cursor: pointer; background: #3498db; color: #fff; }
+  button.sec { background: #7f8c8d; }
+  button.danger { background: #e74c3c; padding: 3px 8px; font-size: 12px; }
+  button.mini { background: #27ae60; padding: 4px 10px; font-size: 12px; }
+  button:hover { opacity: .9; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #d6dade; padding: 4px 6px; }
+  th { background: #f0f3f6; }
+  td input, td select { width: 100%; border: 1px solid #e2e6ea; }
+  .members-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .mtab { padding: 6px 12px; background: #e9edf1; border-radius: 6px; cursor: pointer;
+          font-size: 13px; border: 1px solid #d6dade; }
+  .mtab.active { background: #3498db; color: #fff; border-color: #3498db; }
+  .muted { color: #7f8c8d; font-size: 12px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #ecf0f1; }
+  .pill.warn { background: #fdecea; color: #c0392b; }
+  .pill.ok { background: #e8f8f0; color: #1e8449; }
+
+  /* ── 정산내역서 출력 영역 ───────────────────────────── */
+  #output { background: #fff; }
+  .statement { width: 190mm; margin: 0 auto 10mm; padding: 4mm;
+               border: 1px solid #999; }
+  .statement table { table-layout: fixed; }
+  .statement td, .statement th { border: 1px solid #000; padding: 3px 5px;
+               font-size: 12px; vertical-align: middle; }
+  .st-title { font-size: 26px; font-weight: bold; text-align: center;
+              letter-spacing: 8px; }
+  .st-head th { background: #d9d9d9; text-align: center; }
+  .gray { background: #d9d9d9; font-weight: bold; text-align: center; }
+  .blue { color: #0070c0; font-weight: bold; }
+  .orange { background: #fce4d6; }
+  .r { text-align: right; } .c { text-align: center; } .l { text-align: left; }
+  .small { font-size: 10px; }
+  .bigo-box { white-space: pre-line; font-size: 11px; text-align: left;
+              vertical-align: top; }
+
+  @media print {
+    body { background: #fff; }
+    header, .wrap > .card, #printHint { display: none !important; }
+    #output, .wrap { margin: 0; padding: 0; max-width: none; }
+    .statement { border: none; page-break-after: always; margin: 0 auto; }
+    .statement:last-child { page-break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>하랑관광 정산내역서 자동 생성</h1>
+  <div class="sub">급여대장 업로드 → 조합원별 정산내역서 자동 생성 · 인쇄/PDF</div>
+</header>
+
+<div class="wrap">
+
+  <!-- 설정 + 급여대장 -->
+  <div class="card">
+    <h2>① 기본 설정 &amp; 급여대장</h2>
+    <div class="body">
+      <div class="row" style="margin-bottom:10px">
+        <label class="fld">해당월
+          <input id="setMonth" type="text" value="2026년 2월" size="12">
+        </label>
+        <label class="fld">정산일
+          <input id="setDate" type="text" value="2026-03-05" size="12">
+        </label>
+      </div>
+      <div class="row">
+        <label class="fld">급여대장 파일 (.xls / .xlsx)
+          <input id="payrollFile" type="file" accept=".xls,.xlsx">
+        </label>
+        <span id="payrollStatus" class="pill">미업로드</span>
+      </div>
+      <div id="payrollList" class="muted" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- 조합원 관리 -->
+  <div class="card">
+    <h2>② 조합원 정보 &amp; 내역 입력</h2>
+    <div class="body">
+      <div class="members-tabs" id="memberTabs"></div>
+      <div class="toolbar" style="margin-bottom:12px">
+        <button class="mini" onclick="addMember()">+ 조합원 추가</button>
+        <button class="sec" onclick="delMember()">현재 조합원 삭제</button>
+        <span class="muted">탭을 눌러 조합원을 전환하세요. 입력은 자동 저장됩니다.</span>
+      </div>
+
+      <div id="memberEditor"></div>
+    </div>
+  </div>
+
+  <!-- 생성 -->
+  <div class="card">
+    <h2>③ 정산내역서 생성</h2>
+    <div class="body toolbar">
+      <button onclick="generate()">▶ 정산내역서 생성</button>
+      <button class="sec" onclick="window.print()">🖨 인쇄 / PDF 저장</button>
+      <button class="sec" onclick="exportData()">데이터 백업(JSON)</button>
+      <label class="fld" style="flex-direction:row;align-items:center;gap:6px">
+        <span class="muted">복원</span>
+        <input id="importFile" type="file" accept=".json" onchange="importData(event)">
+      </label>
+    </div>
+  </div>
+
+  <div id="printHint" class="muted" style="margin:6px 2px">
+    ※ 인쇄 미리보기에서 "대상: PDF로 저장"을 선택하면 PDF 파일로 저장됩니다.
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════
+//  상태
+// ══════════════════════════════════════════════════════════════════════
+let state = {
+  month: "2026년 2월",
+  date: "2026-03-05",
+  members: [],     // {name, car, account, note, items:[{gubun,dest,month,income,expense,bigo}]}
+  current: 0,
+};
+let payrollMap = {};   // {이름: 급여}
+
+const won = n => (isNaN(n) ? "" : Math.round(n).toLocaleString("ko-KR"));
+const num = v => { const n = parseFloat(String(v).replace(/,/g,"")); return isNaN(n)?0:n; };
+
+// ── 저장/복원 ──────────────────────────────────────────────────────────
+function save() {
+  state.month = document.getElementById("setMonth").value;
+  state.date  = document.getElementById("setDate").value;
+  localStorage.setItem("harang_state", JSON.stringify(state));
+}
+function load() {
+  const s = localStorage.getItem("harang_state");
+  if (s) { try { state = JSON.parse(s); } catch(e){} }
+  if (!state.members.length) {
+    state.members = [ blankMember("") ];
+  }
+  document.getElementById("setMonth").value = state.month || "";
+  document.getElementById("setDate").value  = state.date  || "";
+}
+function blankMember(name) {
+  return { name: name||"", car:"", account:"", note:"",
+           items: [ blankItem() ] };
+}
+function blankItem() {
+  return { gubun:"", dest:"", month:"", income:"", expense:"", bigo:"" };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  급여대장 파싱
+// ══════════════════════════════════════════════════════════════════════
+document.getElementById("payrollFile").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const wb = XLSX.read(new Uint8Array(ev.target.result), { type:"array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1 });
+    payrollMap = {};
+    rows.forEach(r => {
+      if (!r || r[0]==null) return;
+      let name = String(r[0]).split("\n")[0].trim();
+      const pay = r[14];   // O열 = index 14 (지급액계)
+      if (name && typeof pay === "number" && pay > 0 && !/^\d+\.?$/.test(name)) {
+        payrollMap[name] = pay;
+      }
+    });
+    const cnt = Object.keys(payrollMap).length;
+    document.getElementById("payrollStatus").className = "pill ok";
+    document.getElementById("payrollStatus").textContent = `${cnt}명 로드됨`;
+    document.getElementById("payrollList").textContent =
+      "급여 연동: " + Object.entries(payrollMap)
+        .map(([k,v])=>`${k} ${won(v)}`).join(" · ");
+    renderEditor();
+  };
+  reader.readAsArrayBuffer(f);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  조합원 탭 / 에디터
+// ══════════════════════════════════════════════════════════════════════
+function renderTabs() {
+  const box = document.getElementById("memberTabs");
+  box.innerHTML = "";
+  state.members.forEach((m, i) => {
+    const d = document.createElement("div");
+    d.className = "mtab" + (i===state.current ? " active":"");
+    d.textContent = m.name || `(이름없음 ${i+1})`;
+    d.onclick = () => { state.current = i; renderTabs(); renderEditor(); };
+    box.appendChild(d);
+  });
+}
+function addMember() { state.members.push(blankMember("")); state.current = state.members.length-1; save(); renderTabs(); renderEditor(); }
+function delMember() {
+  if (state.members.length<=1) { alert("최소 1명은 있어야 합니다."); return; }
+  if (!confirm("현재 조합원을 삭제할까요?")) return;
+  state.members.splice(state.current,1);
+  state.current = Math.max(0, state.current-1);
+  save(); renderTabs(); renderEditor();
+}
+
+function renderEditor() {
+  const m = state.members[state.current];
+  if (!m) return;
+  const pay = payrollMap[m.name];
+  const payPill = m.name
+    ? (pay!=null ? `<span class="pill ok">급여 ${won(pay)}원</span>`
+                 : `<span class="pill warn">급여대장에 '${m.name}' 없음</span>`)
+    : `<span class="pill">이름 입력 시 급여 자동연동</span>`;
+
+  let itemRows = m.items.map((it,idx)=>`
+    <tr>
+      <td class="c">${idx+1}</td>
+      <td><input value="${esc(it.gubun)}" onchange="upd(${idx},'gubun',this.value)"></td>
+      <td><input value="${esc(it.dest)}" onchange="upd(${idx},'dest',this.value)"></td>
+      <td><input value="${esc(it.month)}" onchange="upd(${idx},'month',this.value)"></td>
+      <td><input type="number" value="${it.income}" onchange="upd(${idx},'income',this.value)"></td>
+      <td><input type="number" value="${it.expense}" onchange="upd(${idx},'expense',this.value)"></td>
+      <td><input value="${esc(it.bigo)}" onchange="upd(${idx},'bigo',this.value)"></td>
+      <td class="c"><button class="danger" onclick="delItem(${idx})">×</button></td>
+    </tr>`).join("");
+
+  document.getElementById("memberEditor").innerHTML = `
+    <div class="row" style="margin-bottom:10px">
+      <label class="fld">조합원명 ${payPill}
+        <input value="${esc(m.name)}" onchange="updM('name',this.value)">
+      </label>
+      <label class="fld">차량번호
+        <input value="${esc(m.car)}" onchange="updM('car',this.value)">
+      </label>
+      <label class="fld" style="flex:1">입금계좌
+        <input style="width:100%" value="${esc(m.account)}" onchange="updM('account',this.value)">
+      </label>
+    </div>
+    <label class="fld" style="margin-bottom:10px">분할분담금 안내(비고)
+      <textarea rows="3" style="width:100%" onchange="updM('note',this.value)">${esc(m.note)}</textarea>
+    </label>
+    <table>
+      <thead><tr>
+        <th style="width:34px">No</th><th style="width:70px">구분</th>
+        <th>행선지/계약자</th><th style="width:90px">계약월</th>
+        <th style="width:120px">수입(입금)</th><th style="width:120px">지출(출금)</th>
+        <th>비고</th><th style="width:36px"></th>
+      </tr></thead>
+      <tbody>${itemRows}</tbody>
+    </table>
+    <div style="margin-top:8px"><button class="mini" onclick="addItem()">+ 내역 줄 추가</button></div>
+  `;
+}
+function esc(s){ return String(s==null?"":s).replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+function updM(k,v){ state.members[state.current][k]=v; save(); if(k==="name"){renderTabs(); renderEditor();} }
+function upd(i,k,v){ state.members[state.current].items[i][k]=v; save(); }
+function addItem(){ state.members[state.current].items.push(blankItem()); save(); renderEditor(); }
+function delItem(i){ const it=state.members[state.current].items; if(it.length<=1){it[0]=blankItem();} else {it.splice(i,1);} save(); renderEditor(); }
+
+// ══════════════════════════════════════════════════════════════════════
+//  정산내역서 생성 (표준 양식)
+// ══════════════════════════════════════════════════════════════════════
+function generate() {
+  save();
+  const out = document.getElementById("output");
+  out.innerHTML = "";
+  state.members.forEach(m => out.appendChild(renderStatement(m)));
+  out.scrollIntoView({behavior:"smooth"});
+}
+
+function renderStatement(m) {
+  const items = m.items.filter(it => it.gubun||it.dest||it.income||it.expense||it.bigo);
+  const incomeSum = items.reduce((s,it)=>s+num(it.income),0);
+  const expenseSum = items.reduce((s,it)=>s+num(it.expense),0);
+  const total = incomeSum - expenseSum;          // 총계
+  const salary = payrollMap[m.name] || 0;        // 급여
+  const remain = total - salary;                 // 잔여
+  const taxExact = remain * 0.033;
+  const tax = Math.round(taxExact);              // 소득세 표시
+  const remainSum = Math.round((remain - taxExact)/10)*10;  // ROUND(,-1)
+
+  const minRows = Math.max(items.length, 5);
+  let rows = "";
+  for (let i=0;i<minRows;i++){
+    const it = items[i];
+    rows += `<tr>
+      <td class="c">${i+1}</td>
+      <td class="c">${it?esc(it.gubun):""}</td>
+      <td class="c"></td>
+      <td class="l">${it?esc(it.dest):""}</td>
+      <td class="c">${it?esc(it.month):""}</td>
+      <td class="r">${it&&num(it.income)?won(num(it.income)):""}</td>
+      <td class="r">${it&&num(it.expense)?won(num(it.expense)):""}</td>
+      <td class="c"></td>
+      <td class="l small">${it?esc(it.bigo):""}</td>
+    </tr>`;
+  }
+
+  const div = document.createElement("div");
+  div.className = "statement";
+  div.innerHTML = `
+  <table>
+    <colgroup>
+      <col style="width:5%"><col style="width:7%"><col style="width:8%">
+      <col style="width:18%"><col style="width:11%"><col style="width:13%">
+      <col style="width:13%"><col style="width:9%"><col style="width:16%">
+    </colgroup>
+    <tr>
+      <td class="st-title" colspan="4" rowspan="2">정산내역서</td>
+      <td class="gray">차량번호</td><td class="c blue" colspan="2">${esc(m.car)}</td>
+      <td class="gray">해당월</td><td class="c blue">${esc(state.month)}</td>
+    </tr>
+    <tr>
+      <td class="gray">조합원명</td><td class="c blue" colspan="2">${esc(m.name)}</td>
+      <td class="gray">정산일</td><td class="c blue">${esc(state.date)}</td>
+    </tr>
+    <tr class="st-head">
+      <th></th><th>구분</th><th>입금일</th><th>행선지 / 계약자</th><th></th>
+      <th>수입(입금)</th><th>지출(출금)</th><th>보류</th><th>비고</th>
+    </tr>
+    ${rows}
+    <tr>
+      <td class="gray" colspan="5">계</td>
+      <td class="r blue">${won(incomeSum)}</td>
+      <td class="r" style="font-weight:bold">${won(expenseSum)}</td>
+      <td></td><td></td>
+    </tr>
+    <tr>
+      <td class="gray" colspan="4">총   계</td>
+      <td class="c blue" colspan="2">${won(total)}</td>
+      <td></td><td></td><td></td>
+    </tr>
+    <tr>
+      <td class="gray" rowspan="4">비 고</td>
+      <td class="bigo-box" colspan="3" rowspan="4">${esc(m.note)}</td>
+      <td class="gray" colspan="3">급   여</td>
+      <td class="r" colspan="2" style="font-weight:bold">${won(salary)}</td>
+    </tr>
+    <tr>
+      <td class="gray" colspan="3">잔   여</td>
+      <td class="r" colspan="2" style="font-weight:bold">${won(remain)}</td>
+    </tr>
+    <tr>
+      <td class="gray" colspan="3">잔여금 소득세공제(3.3%)</td>
+      <td class="r" colspan="2" style="font-weight:bold">${won(tax)}</td>
+    </tr>
+    <tr>
+      <td class="gray" colspan="3">잔 여 합 계</td>
+      <td class="r blue orange" colspan="2">${won(remainSum)}</td>
+    </tr>
+    <tr>
+      <td class="gray" colspan="4">기 타</td>
+      <td class="c" colspan="5" style="font-weight:bold">${esc(m.account)}</td>
+    </tr>
+  </table>`;
+  return div;
+}
+
+// ── 백업/복원 ──────────────────────────────────────────────────────────
+function exportData() {
+  save();
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `정산데이터_${(state.month||"").replace(/\s/g,"")}.json`;
+  a.click();
+}
+function importData(e) {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try { state = JSON.parse(ev.target.result); state.current=0;
+          save(); load(); renderTabs(); renderEditor();
+          alert("복원되었습니다."); }
+    catch(err){ alert("복원 실패: "+err); }
+  };
+  r.readAsText(f);
+}
+
+// ── 시작 ───────────────────────────────────────────────────────────────
+document.getElementById("setMonth").addEventListener("change", save);
+document.getElementById("setDate").addEventListener("change", save);
+load(); renderTabs(); renderEditor();
+</script>
+</body>
+</html>
