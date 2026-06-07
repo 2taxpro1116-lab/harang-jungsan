@@ -226,7 +226,7 @@ document.getElementById("inputFile").addEventListener("change", e => {
   const reader = new FileReader();
   reader.onload = ev => {
     let wb;
-    try { wb = XLSX.read(new Uint8Array(ev.target.result), { type:"array", cellDates:true }); }
+    try { wb = XLSX.read(new Uint8Array(ev.target.result), { type:"array" }); }
     catch(err){ alert("엑셀을 읽을 수 없습니다: "+err); return; }
 
     // 내역입력
@@ -243,10 +243,13 @@ document.getElementById("inputFile").addEventListener("change", e => {
       const cell = v => (v!=null ? String(v).trim() : "");
       const numc = v => (v!=null && v!=="" ? v : "");
       const dcell = v => {
-        if (v instanceof Date) {
-          const y=v.getFullYear(), mo=String(v.getMonth()+1).padStart(2,"0"),
-                d=String(v.getDate()).padStart(2,"0");
-          return `${y}-${mo}-${d}`;
+        // 엑셀 날짜 일련번호(숫자) → YYYY-MM-DD (시간대 영향 없이 UTC 계산)
+        if (typeof v === "number") {
+          const utc = Date.UTC(1899,11,30) + Math.round(v)*86400000;
+          const d = new Date(utc);
+          const y=d.getUTCFullYear(), mo=String(d.getUTCMonth()+1).padStart(2,"0"),
+                dd=String(d.getUTCDate()).padStart(2,"0");
+          return `${y}-${mo}-${dd}`;
         }
         return cell(v);
       };
